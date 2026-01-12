@@ -14,9 +14,12 @@
 
 Home Assistant custom component for controlling vSmart in Vaillant+ cn app.
 
-## Screenshot
+## 注意事项
+	原代码在我ha上运行后，除了初次能加载数据信息，随后所有传感器会抽风出现“不可用”的情况。使用的是威能带com口的智能网关。
 
-![screenshot](docs/images/screenshot-all.jpg)
+	1、本次修改主要在daxingplay的基础上，调整了binary_sensor和sensor，基本避免了传感出现不可用或者unavailable的情况；
+	2、启动时会一次性创建所有 SENSOR_DESCRIPTIONS 里定义的实体，如果云端一开始没返回某些字段，则实体显示“未知”；
+
 
 ## Installation
 
@@ -25,11 +28,6 @@ Home Assistant custom component for controlling vSmart in Vaillant+ cn app.
 
 ### Installation Methods
 #### HACS
-Click the following link to add to your Home Assistant.
-
-[![Open your Home Assistant instance and open a repository inside the Home Assistant Community Store.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=daxingplay&repository=home-assistant-vaillant-plus&category=integration)
-
-Or you can search for `Vaillant Plus` in your HACS.
 
 #### Manual
 Copy `custom_components/vaillant_plus` into your Home Assistant `config` directory.
