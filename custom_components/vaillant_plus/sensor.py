@@ -21,7 +21,9 @@ from .entity import VaillantEntity
 
 _LOGGER = logging.getLogger(__name__)
 
-
+# =========================
+# 传感器定义（不动）
+# =========================
 SENSOR_DESCRIPTIONS = (
     SensorEntityDescription(
         key="Room_Temperature_Setpoint_Comfort",
@@ -110,34 +112,43 @@ SENSOR_DESCRIPTIONS = (
 )
 
 
+# =========================
+# setup 逻辑（关键修改）
+# =========================
 async def async_setup_entry(
-    hass: HomeAssistant, entry: ConfigEntry, async_add_entities: AddEntitiesCallback
+    hass: HomeAssistant,
+    entry: ConfigEntry,
+    async_add_entities: AddEntitiesCallback,
 ) -> bool:
     """Set up Vaillant sensors."""
-    device_id = entry.data.get(CONF_DID)
-    client: VaillantClient = hass.data[DOMAIN][API_CLIENT][
-        entry.entry_id
-    ]
 
-    added_entities = []
+    device_id = entry.data.get(CONF_DID)
+    client: VaillantClient = hass.data[DOMAIN][API_CLIENT][entry.entry_id]
+
+    added_entities: list[str] = []
 
     @callback
     def async_new_entities(device_attrs: dict[str, Any]):
-        _LOGGER.debug("add vaillant sensor entities. device attrs: %s", device_attrs)
+        """Create ALL sensor entities once, regardless of current data."""
+        _LOGGER.debug("setup vaillant sensor entities (force create all)")
+
         new_entities = []
+
         for description in SENSOR_DESCRIPTIONS:
-            if (
-                description.key in device_attrs
-                and description.key not in added_entities
-            ):
-                new_entities.append(VaillantSensorEntity(client, description))
+            if description.key not in added_entities:
+                new_entities.append(
+                    VaillantSensorEntity(client, description)
+                )
                 added_entities.append(description.key)
 
-        if len(new_entities) > 0:
+        if new_entities:
             async_add_entities(new_entities)
 
+    # 设备连上就一次性创建所有实体
     unsub = async_dispatcher_connect(
-        hass, EVT_DEVICE_CONNECTED.format(device_id), async_new_entities
+        hass,
+        EVT_DEVICE_CONNECTED.format(device_id),
+        async_new_entities,
     )
 
     hass.data[DOMAIN][DISPATCHERS][device_id].append(unsub)
@@ -145,6 +156,9 @@ async def async_setup_entry(
     return True
 
 
+# =========================
+# Sensor 实体（关键修改）
+# =========================
 class VaillantSensorEntity(VaillantEntity, SensorEntity):
     """Define a Vaillant sensor entity."""
 
@@ -156,6 +170,9 @@ class VaillantSensorEntity(VaillantEntity, SensorEntity):
         super().__init__(client)
         self.entity_description = description
 
+        # 关键：默认认为设备可用
+        self._attr_available = True
+
     @property
     def unique_id(self) -> str | None:
         """Return a unique ID."""
@@ -163,8 +180,16 @@ class VaillantSensorEntity(VaillantEntity, SensorEntity):
 
     @callback
     def update_from_latest_data(self, data: dict[str, Any]) -> None:
-        """Update the entity from the latest data."""
+        """Update the entity from the latest data.
+
+        - 如果当前数据缺失：保留旧值
+        - 不因为 None 进入 unavailable
+        """
 
         value = data.get(self.entity_description.key)
-        self._attr_native_value = value
-        self._attr_available = value is not None
+
+        if value is not None:
+            self._attr_native_value = value
+
+        # 只要设备在线，就认为传感器可用
+        self._attr_available = True

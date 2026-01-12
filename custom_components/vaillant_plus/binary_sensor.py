@@ -26,7 +26,7 @@ _LOGGER = logging.getLogger(__name__)
 class VaillantBinarySensorDescriptionMixin:
     """Define an entity description mixin for binary sensors."""
 
-    on_state: Literal[False, True]
+    on_state: Literal[False, True] | int | None
 
 
 @dataclass
@@ -75,7 +75,6 @@ BINARY_SENSOR_DESCRIPTIONS = (
     VaillantBinarySensorDescription(
         key="BMU_Platform",
         name="BMU platform",
-        # device_class=BinarySensorDeviceClass.RUNNING,
         entity_category=EntityCategory.DIAGNOSTIC,
         on_state=1,
     ),
@@ -91,21 +90,21 @@ BINARY_SENSOR_DESCRIPTIONS = (
         name="EBus status",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         entity_category=EntityCategory.DIAGNOSTIC,
-        on_state=3,
+        on_state=None,
     ),
     VaillantBinarySensorDescription(
         key="Boiler_info3_bit0",
         name="Boiler heating demand",
         device_class=BinarySensorDeviceClass.RUNNING,
         entity_category=EntityCategory.DIAGNOSTIC,
-        on_state=True,
+        on_state=None,
     ),
     VaillantBinarySensorDescription(
         key="Boiler_info5_bit4",
         name="Boiler need refill water",
         device_class=BinarySensorDeviceClass.PROBLEM,
         entity_category=EntityCategory.DIAGNOSTIC,
-        on_state=True,
+        on_state=None,
     ),
 )
 
@@ -115,11 +114,9 @@ async def async_setup_entry(
 ) -> bool:
     """Set up Vaillant binary sensors."""
     device_id = entry.data.get(CONF_DID)
-    client: VaillantClient = hass.data[DOMAIN][API_CLIENT][
-        entry.entry_id
-    ]
+    client: VaillantClient = hass.data[DOMAIN][API_CLIENT][entry.entry_id]
 
-    added_entities = []
+    added_entities: list[str] = []
 
     @callback
     def async_new_entities(device_attrs: dict[str, Any]):
@@ -135,7 +132,7 @@ async def async_setup_entry(
                 new_entities.append(VaillantBinarySensorEntity(client, description))
                 added_entities.append(description.key)
 
-        if len(new_entities) > 0:
+        if new_entities:
             async_add_entities(new_entities)
 
     unsub = async_dispatcher_connect(
@@ -162,22 +159,28 @@ class VaillantBinarySensorEntity(VaillantEntity, BinarySensorEntity):
 
     @property
     def unique_id(self) -> str | None:
-        """Return a unique ID."""
         return f"{self.device.id}_{self.entity_description.key}"
 
     @callback
     def update_from_latest_data(self, data: dict[str, Any]) -> None:
-        """Update the entity from the latest data."""
-        self._attr_available = data[self.entity_description.key] is not None
+        """Update the entity from the latest data (safe)."""
 
-        value: Any = data.get(self.entity_description.key)
-        if self.entity_description.key == "RF_Status":
+        value = data.get(self.entity_description.key)
+
+        # 永远不因为一次缺字段就 unavailable
+        self._attr_available = True
+
+        if value is None:
+            return
+
+        key = self.entity_description.key
+
+        if key == "RF_Status":
             self._attr_is_on = value == 3
-        elif self.entity_description.key == "Boiler_info3_bit0":
-            self._attr_is_on = value.startswith("1")
-        elif self.entity_description.key == "Boiler_info5_bit4":
-            self._attr_is_on = value.startswith("1")
+        elif key in ("Boiler_info3_bit0", "Boiler_info5_bit4"):
+            if isinstance(value, str):
+                self._attr_is_on = value.startswith("1")
         elif self.entity_description.on_state is not None:
             self._attr_is_on = value == self.entity_description.on_state
         else:
-            self._attr_is_on = value is True
+            self._attr_is_on = bool(value)
